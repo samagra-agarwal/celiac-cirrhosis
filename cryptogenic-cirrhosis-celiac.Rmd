@@ -1,0 +1,163 @@
+---
+title: "cryptogenic-cirrhosis-celiac"
+author: "Samagra Agarwal"
+date: "2024-12-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Celiac disease in patients with cryptogenic cirhosis
+### Excerpts from Published data in [American Journal of Gastroenterology](https://journals.lww.com/ajg/abstract/9900/celiac_disease_is_common_in_adults_with.1474.aspx)
+
+Celiac disease (CeD) is a gluten-sensitive enteropathy that affects nearly 1 per cent of the world's population and its only treatment is lifelong compliance to a strict gluten-free diet (GFD). Almost one third of patients with CeD have asymptomatic increase in serum transaminases and they normalize in 63%-90% of patients with a gluten-free diet (GFD) within one year. However outcomes of GFD in patients with celiac cirrhosis are unclear. 
+
+Here we prospectively and systematically evaluated the patients of cryptogenic cirrhosis presenting at our institution, and studied the seroprevalence and prevalence of biopsy proven CeD in them. In addition, we maintained patients with definite CeD on gluten-free diet and followed them up for 1-year, comparing their liver related outcomes to a matched cohort of patients with cryptogenic cirrhosis but without CeD.  
+
+## Brief Methods
+
+This was a prospective observational single centre study conducted at a tertiary care hospital in India (Department of Gastroenterology, All India Institute of Medical Sciences, New Delhi), involving patients with cryptogenic cirrhosis being evaluated for etiology. The study was conducted between February 2021 to June 2023, with patient recruitment conducted over the first one year, follow-up over the next one year and compilation of study data over the next 3 months. 
+
+
+The study protocol was prospectively approved by the Institutional Ethics Committee (IECPG-135/24.02.2021). Patients with definite CeD were identified using IgA-TTG and biopsies. Cryptogenic cirrhosis was defined using standard definitions.
+
+Cryptogenic cirrhosis was defined when the etiology of the cirrhosis could not be ascertained despite complete stepwise evaluation as per the institutional protocol, Prototypical laboratory evaluation included tests to rule out chronic viral hepatitis B (HBV) & C (HCV) (Hepatitis B surface antigen [HBsAg] , total anti-HBc Ab,  anti-HCV Ab , HCV RNA), Autoimmune hepatitis (AIH) (Anti-nuclear antibodies (ANA), Anti-smooth muscle antibodies (ASMA),  Anti liver kidney microsomal antibodies (ALKM-1), IgG total), Wilson’s disease (serum ceruloplasmin ,24 hour urinary copper and serum copper), non-alcoholic fatty liver disease (NAFLD) (CAP > 260,  ultrasound) , vascular liver disorders (Doppler for hepatic vein/ Inferior vena cava/ portal vein), hemochromatosis (serum ferritin and transferrin saturation).
+
+Definite CeD was diagnosed based on positive celiac serology (Iga-TTG or EMA) AND characteristic changes on duodenal biopsies (Marsh 2 or more). These patients were kept on GFD by trained dietitians and followed up for 1 year
+
+Patients who were willing fof liver biopsies also underwent demonstration of IgA and anti-tTG Ab deposits in the duodenal and liver biopsies by co-localization studies using dual colour immunohistochemistry (IHC) technique).
+
+Matched control was identified based on baseline demographic/ prognostic factors in 1:4 ratio and followed up on standard management.
+
+##Results
+
+We screened 300 patients, of whom 232 could undergo complete workup and 11 were found to have definite CeD
+
+```{r show figure 2, echo=FALSE, out.width="800px", out.height = "800px", dpi=120}
+knitr::include_graphics("Figure 2.pdf")
+```
+
+Overall prevalance of definite CeD in cryptogenic cirrhosis is 11/232: 4.7% (95% CI =2.4% - 8.3%)
+
+Were these patients actually having cirrhosis indiced by CeD? Hard to say conclusively. However, we were able to convince 8 of these patients to undergo liver biopsy. IgA / anti-tTG Ab colocalization deposits were seen in 7/8 (88%) liver biopsies of patients with cryptogenic cirrhosis with CeD by dual IHC technique and in 6/8 (75%) corresponding duodenal biopsies. Thus the hypothesis that CeD causes cirrhosis may have some merit after all.
+
+```{r show figure 3, echo=FALSE, out.width="800px", out.height = "800px", dpi=120}
+knitr::include_graphics("Figure 5.pdf")
+```
+
+Now the aim was to see if their outcomes actually improve on GFD when compared to matched controls (n = 44)
+
+Importing required libraries
+```{r libraries}
+library(tidyverse)
+library(readxl)
+library(car)
+library(lme4)
+```
+
+Reading data. Data is maintained on an excel sheet and looks sparse
+
+```{r reading data, error=FALSE, warning=FALSE, message=FALSE}
+d2 <- read_excel("matched data final (1).xlsx")
+names(d2) <- make.names(names(d2), unique = TRUE)
+```
+
+Basic cleaning for further analyses. 
+
+```{r basic cleaning}
+d2 <- d2 %>% mutate(celiac = Marsh.Grade>=2,
+                 Plt = as.numeric(Plt),
+                 IgA.ttg. = as.numeric(IgA.ttg.),
+                 TTG.range = as.numeric(TTG.range),
+                 Fold.Rise = ifelse(is.na(Fold.Rise), round(IgA.ttg./TTG.range, 1), Fold.Rise),
+                 MELDNa_0 = round(MELDNa_0),
+                 MELDNa_12 = round(MELDNa_12))
+
+nrow(d2)
+```
+
+Now I need to compare both groups (i.e. definite CeD on GFD and matched controls) to see if diagnosing and treating CeD in this sick group of patients actually makes a difference. Multiple measurements have been made for a set of prognostic variables, and GLM seems to be the best fit for analysis.
+
+I will therefore first make this data format long from wide. This should help with analysis and plots
+
+```{r wide to long}
+s <- d2 %>% gather(v, value, c(MELDNa_0, MELDNa_12, CTP_0, CTP_12, LSM_0, LSM_12)) %>% 
+  separate(v, c("var", "time"), sep = "_")  %>%
+  spread(var, value) 
+
+s<- s%>%mutate(time = as.numeric(time))
+
+nrow(s)
+```
+
+Grouping and summarizing data. This should help in getting a glimpse of how all these values are changing over repeated measurements across both groups.
+
+```{r grouping and summarizing}
+gs <- s %>% 
+  group_by(time, celiac) %>% 
+  summarise( MELD.mean = median(MELDNa, na.rm= TRUE), MELD.up = quantile(MELDNa, 0.75, na.rm = TRUE),
+             MELD.down = quantile(MELDNa, 0.25, na.rm = TRUE), MELD.m = mean(MELDNa, na.rm= TRUE),
+             MELD.sd = sd(MELDNa, na.rm= TRUE),
+             CTP.mean = median(CTP, na.rm = TRUE), CTP.up = quantile(CTP, 0.75, na.rm = TRUE),
+             CTP.down = quantile(CTP, 0.25, na.rm = TRUE), CTP.m = mean(CTP, na.rm = TRUE),
+             CTP.sd = sd(CTP, na.rm = TRUE),
+             LSM.mean = median(LSM, na.rm = TRUE), LSM.up = quantile(LSM, 0.75, na.rm = TRUE),
+             LSM.down = quantile(LSM, 0.25, na.rm = TRUE), LSM.m = mean(LSM, na.rm = TRUE),
+             LSM.sd = sd(LSM, na.rm = TRUE))
+
+gs
+```
+
+Does diagnosing and treating CeD actually make a difference? Let's run a GLM on basic prognostic scores and compare them using ANOVA. The diagnosis of celiac and time will be treated as fixed effects, while individual patient ID will be treated as random effect.
+
+```{r}
+MELD.Model <- lmer(MELDNa ~ time + celiac + (1 |X3), data = s)
+Anova(MELD.Model)
+
+CTP.Model <- lmer(CTP ~ time + celiac + (1 |X3), data = s)
+Anova(CTP.Model)
+
+LSM.Model <- lmer(LSM ~ time + celiac + (1 |X3), data = s)
+Anova(LSM.Model)
+```
+
+The results seem to indicate that all three parameters are changing significantly with time in both groups. However more interestingly, the diagnosis of CeD also has a significant impact, especially on MELDNa and CTP scores. 
+
+Now the fun part :). Let's plot the changes in all these scores with time. gs will be the source for grouped data while s will be the source for individual patient data. P values will be taken from the ANOVA of previously defined models and annotated into the respective figures.
+
+```{r MELDNa score time}
+ggplot(data = s, aes(x = time, color = celiac)) + 
+  geom_line(aes(group = X3, y = MELDNa), alpha = 0.3) + 
+  geom_line(data = gs, aes(y = MELD.mean), alpha = 0.8, size = 2, position = position_dodge(width = 0.3)) +
+  geom_errorbar(data = gs, aes(x = time, ymin =MELD.down, ymax =MELD.up), width = 0.3, size = 1.5, position = position_dodge(width = 0.3))+
+  geom_point(data = gs, aes(y = MELD.mean),size = 3, position = position_dodge(width = 0.3))+
+  scale_x_continuous() + scale_y_continuous() +
+  labs(col = "Celiac disease", x = "Time (in months)", y = "MELDNa score") + theme_minimal() +
+  annotate("text", x=5, y=22, label= "p = 0.005")
+
+ggplot(data = s, aes(x = time, color = celiac)) + 
+  geom_line(aes(group = X3, y = CTP), alpha = 0.3) + 
+  geom_line(data = gs, aes(y = CTP.mean), alpha = 0.8, size = 2, position = position_dodge(width = 0.3)) +
+  geom_errorbar(data = gs, aes(x = time, ymin =CTP.down, ymax =CTP.up), width = 0.3, size = 1.5, position = position_dodge(width = 0.3))+
+  geom_point(data = gs, aes(y = CTP.mean),size = 3, position = position_dodge(width = 0.3))+
+  scale_x_continuous() + scale_y_continuous() +
+  labs(col = "Celiac disease", x = "Time (in months)", y = "Child Turcotte Pugh score") + theme_minimal() +
+  annotate("text", x=5, y=12, label= "p = 0.006")
+
+ggplot(data = s, aes(x = time, color = celiac)) + 
+  geom_line(aes(group = X3, y = LSM), alpha = 0.3) + 
+  geom_line(data = gs, aes(y = LSM.mean), alpha = 0.8, size = 2, position = position_dodge(width = 0.3)) +
+  geom_errorbar(data = gs, aes(x = time, ymin =LSM.down, ymax =LSM.up), width = 0.3, size = 1.5, position = position_dodge(width = 0.3))+
+  geom_point(data = gs, aes(y = LSM.mean),size = 3, position = position_dodge(width = 0.3))+
+  scale_x_continuous() + scale_y_continuous() +
+  labs(col = "Celiac disease", x = "Time (in months)", y = "Liver stiffness measurement (LSM)") + theme_minimal() +
+  annotate("text", x=5, y=50, label= "p = 0.077")
+```
+
+Thus there may be a response of CeD cirrhosis with GFD
+
+##Conclusion and next steps
+
+Almost 1 in 20 patients of cryptogenic cirrhosis have biopsy-proven CeD. This implies that prevalence of CeD in patients of cryptogenic cirrhosis is almost  5 times  the prevalence of CeD in  general population. Thus, this group should be considered as high-risk population for CeD and they should be routinely screened for CeD. Institution of GFD in them could have a remarkable response in terms of improvement in liver functions even at advanced stages of their diagnosis.  Diagnosing CeD in patients with liver diseases is an opportunity and likely to affect the natural history of this disease. 
